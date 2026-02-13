@@ -11,10 +11,7 @@ EST is a temporal knowledge graph (TKG) forecasting implementation for predictin
 
 ## Framework (Figure 1)
 
-- Original figure file: [`figure1.pdf`](./figure1.pdf)
-- Clickable preview:
-
-[![EST Framework](./figure1.png)](./figure1.pdf)
+[![EST Framework](./framework.png)]
 
 ### Figure Explanation
 
