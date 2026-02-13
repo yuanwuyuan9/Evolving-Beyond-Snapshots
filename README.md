@@ -1,4 +1,4 @@
-# EST: Temporal Knowledge Graph Forecasting
+# Evolving Beyond Snapshots: Harmonizing Structure and Sequence via Entity State Tuning for Temporal Knowledge Graph Forecasting
 
 EST is a temporal knowledge graph (TKG) forecasting implementation for predicting future tails in queries of the form `(s, r, ?, t)`.
 
@@ -11,7 +11,7 @@ EST is a temporal knowledge graph (TKG) forecasting implementation for predictin
 
 ## Framework (Figure 1)
 
-[![EST Framework](./framework.png)]
+![EST Framework](./framework.png)
 
 ### Figure Explanation
 
