@@ -1,19 +1,18 @@
 from collections import defaultdict
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import torch
 
 try:
-    from .models.tr_mamba import TRMamba
+    from .models.est import EST
 except Exception:
-    from models.tr_mamba import TRMamba
+    from models.est import EST
 
 
 SplitDict = Dict[str, np.ndarray]
 RankMetrics = Tuple[float, float, float, float, float]
-TrueTailMap = Dict[Tuple[int, int], np.ndarray]
 
 
 def prepare_split(quads: List[tuple]) -> SplitDict:
@@ -31,14 +30,44 @@ def prepare_split(quads: List[tuple]) -> SplitDict:
     }
 
 
-def build_true_tails_by_hr(history_quads_sorted: List[tuple]) -> TrueTailMap:
-    observed: Dict[Tuple[int, int], set] = defaultdict(set)
-    for h, t, r, _ in history_quads_sorted:
-        observed[(int(h), int(r))].add(int(t))
-    return {
-        key: np.fromiter(vals, dtype=np.int64) if vals else np.zeros(0, dtype=np.int64)
-        for key, vals in observed.items()
-    }
+def build_time_aware_true_tails_for_split(split: SplitDict) -> List[np.ndarray]:
+    size = int(split["size"])
+    if size == 0:
+        return []
+
+    order = np.argsort(split["times"])
+    heads = split["heads"]
+    rels = split["relations"]
+    tails = split["tails"]
+    times = split["times"]
+
+    observed: Dict[Tuple[int, int], Set[int]] = defaultdict(set)
+    past_true_tails: List[Optional[np.ndarray]] = [None] * size
+
+    start = 0
+    while start < size:
+        current_time = times[order[start]]
+        end = start
+        while end < size and times[order[end]] == current_time:
+            end += 1
+
+        for pos in range(start, end):
+            idx = int(order[pos])
+            key = (int(heads[idx]), int(rels[idx]))
+            vals = observed.get(key)
+            if vals:
+                past_true_tails[idx] = np.fromiter(vals, dtype=np.int64)
+            else:
+                past_true_tails[idx] = np.zeros(0, dtype=np.int64)
+
+        for pos in range(start, end):
+            idx = int(order[pos])
+            key = (int(heads[idx]), int(rels[idx]))
+            observed[key].add(int(tails[idx]))
+
+        start = end
+
+    return [arr if arr is not None else np.zeros(0, dtype=np.int64) for arr in past_true_tails]
 
 
 def build_feed_dict(
@@ -76,10 +105,10 @@ def build_feed_dict(
 def train_step_sampled(
     feed: Dict[str, torch.Tensor],
     optimizer: torch.optim.Optimizer,
-    model: TRMamba,
+    model: EST,
     step: int,
     use_time_aware_negative: bool,
-    true_tails_by_hr_train: Optional[TrueTailMap],
+    batch_past_true_tails: Optional[List[np.ndarray]],
 ) -> float:
     model.train()
     optimizer.zero_grad()
@@ -91,16 +120,13 @@ def train_step_sampled(
 
     scores_full = model.forward_full(feed, step)["scores"]
 
-    if use_time_aware_negative and true_tails_by_hr_train:
-        heads_np = feed["heads"].detach().cpu().numpy()
-        rels_np = feed["relations"].detach().cpu().numpy()
+    if use_time_aware_negative and batch_past_true_tails is not None:
         labels_np = labels_true.detach().cpu().numpy()
         for i in range(batch_size):
-            key = (int(heads_np[i]), int(rels_np[i]))
-            tails_arr = true_tails_by_hr_train.get(key)
-            if tails_arr is None or tails_arr.size == 0:
+            tails = batch_past_true_tails[i]
+            if tails is None or tails.size == 0:
                 continue
-            for tail_id in tails_arr:
+            for tail_id in tails:
                 if int(tail_id) != int(labels_np[i]):
                     scores_full[i, int(tail_id)] = -1e9
 
@@ -113,7 +139,7 @@ def train_step_sampled(
 
 def evaluate_plausibility(
     split: SplitDict,
-    model: TRMamba,
+    model: EST,
     device: torch.device,
     history_quads_sorted: List[tuple],
     use_context: bool,
@@ -226,7 +252,7 @@ def train(model_args, data_bundle):
     valid_split = prepare_split(valid_quads)
     test_split = prepare_split(test_quads)
 
-    model = TRMamba(model_args, n_relations, n_entity, time_metadata)
+    model = EST(model_args, n_relations, n_entity, time_metadata)
 
     optimizer = torch.optim.Adam(
         filter(lambda p: p.requires_grad, model.parameters()),
@@ -253,10 +279,9 @@ def train(model_args, data_bundle):
     history_train = sorted(train_quads, key=lambda x: x[3])
     history_valid = sorted(train_quads + valid_quads, key=lambda x: x[3])
     history_test = sorted(train_quads + valid_quads + test_quads, key=lambda x: x[3])
-
-    true_tails_by_hr_train: Optional[TrueTailMap] = None
+    train_past_true_tails: Optional[List[np.ndarray]] = None
     if use_time_aware_negative:
-        true_tails_by_hr_train = build_true_tails_by_hr(history_train)
+        train_past_true_tails = build_time_aware_true_tails_for_split(train_split)
 
     best_valid_acc = 0.0
     best_state_dict = None
@@ -275,7 +300,6 @@ def train(model_args, data_bundle):
 
         permutation = np.random.permutation(train_size)
         epoch_losses = []
-
         for start in range(0, train_size, model_args.batch_size):
             batch_indices = permutation[start:start + model_args.batch_size]
             if batch_indices.size == 0:
@@ -288,13 +312,16 @@ def train(model_args, data_bundle):
                 history_len=history_len,
                 neighbor_finder=neighbor_finder,
             )
+            batch_true_tails = None
+            if use_time_aware_negative and train_past_true_tails is not None:
+                batch_true_tails = [train_past_true_tails[int(idx)] for idx in batch_indices]
             loss = train_step_sampled(
                 feed=feed,
                 optimizer=optimizer,
                 model=model,
                 step=step,
                 use_time_aware_negative=use_time_aware_negative,
-                true_tails_by_hr_train=true_tails_by_hr_train,
+                batch_past_true_tails=batch_true_tails,
             )
             epoch_losses.append(loss)
 

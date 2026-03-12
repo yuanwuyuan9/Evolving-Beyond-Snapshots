@@ -5,6 +5,7 @@ import torch.nn as nn
 
 from .struct_encoder import StructEncoder
 from .temporal_encoders import (
+    TemporalEncoderLSTM,
     TemporalEncoderMamba,
     TemporalEncoderRNN,
     TemporalEncoderTransformer,
@@ -12,7 +13,7 @@ from .temporal_encoders import (
 from .time import TimeDeltaProjection
 
 
-class TRMamba(nn.Module):
+class EST(nn.Module):
     def __init__(self, args, n_relations: int, n_entity: int, time_metadata: Dict):
         super().__init__()
         self.use_gpu = bool(getattr(args, "cuda", False)) and torch.cuda.is_available()
@@ -21,9 +22,10 @@ class TRMamba(nn.Module):
         self.scoring_fn = getattr(args, "scoring_fn", "distmult")
         self.use_struct_encoder = bool(getattr(args, "use_struct_encoder", False))
         self.struct_type = getattr(args, "struct_type", "linear")
-        self.use_state_writeback = True
         self.state_alpha = float(getattr(args, "state_alpha", 0.2))
         self.state_fuse = getattr(args, "state_fuse", "add")
+        gate_threshold = float(getattr(args, "gate_threshold", 0.5))
+        gate_scale = float(getattr(args, "gate_scale", 5.0))
         self.temporal_encoder_type = getattr(args, "temporal_encoder", "mamba")
 
         self.n_relations = n_relations
@@ -60,11 +62,10 @@ class TRMamba(nn.Module):
 
         self.delta_proj = TimeDeltaProjection(self.time_emb_dim)
 
-        if self.use_state_writeback:
-            self.register_buffer("entity_state_fast", torch.zeros(n_entity, self.hidden_dim), persistent=False)
-            self.register_buffer("entity_state_slow", torch.zeros(n_entity, self.hidden_dim), persistent=False)
-            self.gate_threshold = nn.Parameter(torch.tensor(0.5), requires_grad=False)
-            self.gate_scale = nn.Parameter(torch.tensor(5.0), requires_grad=False)
+        self.register_buffer("entity_state_fast", torch.zeros(n_entity, self.hidden_dim), persistent=False)
+        self.register_buffer("entity_state_slow", torch.zeros(n_entity, self.hidden_dim), persistent=False)
+        self.gate_threshold = nn.Parameter(torch.tensor(gate_threshold), requires_grad=False)
+        self.gate_scale = nn.Parameter(torch.tensor(gate_scale), requires_grad=False)
 
         time_id_to_value = time_metadata["time_id_to_value"]
         time_min = float(time_id_to_value.min()) if time_id_to_value.size > 0 else 0.0
@@ -80,6 +81,8 @@ class TRMamba(nn.Module):
         self.query_proj = nn.Linear(query_input_dim, self.hidden_dim)
         if self.temporal_encoder_type == "mamba":
             self.temporal_encoder = TemporalEncoderMamba(history_input_dim, self.hidden_dim)
+        elif self.temporal_encoder_type == "lstm":
+            self.temporal_encoder = TemporalEncoderLSTM(history_input_dim, self.hidden_dim)
         elif self.temporal_encoder_type == "rnn":
             self.temporal_encoder = TemporalEncoderRNN(history_input_dim, self.hidden_dim)
         elif self.temporal_encoder_type == "transformer":
@@ -125,7 +128,7 @@ class TRMamba(nn.Module):
         neighbor_emb = self.entity_emb(history_entities)
         if self.use_struct_encoder and hasattr(self, "struct_encoder"):
             state_in = None
-            if self.use_state_writeback and hasattr(self, "entity_state_slow"):
+            if hasattr(self, "entity_state_slow"):
                 state_in = self.entity_state_slow[history_entities]
             neighbor_emb = self.struct_encoder(neighbor_emb, history_relations, state_in)
 
@@ -288,7 +291,7 @@ class TRMamba(nn.Module):
 
         scores = self._score_candidates(context_head, relations)
 
-        if self.training and self.use_state_writeback and (step >= 0):
+        if self.training and (step >= 0):
             self._maybe_writeback_states(heads, context_head)
 
         return {"scores": scores}

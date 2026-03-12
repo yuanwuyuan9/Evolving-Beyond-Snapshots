@@ -1,17 +1,19 @@
 from .struct_encoder import StructEncoder
 from .temporal_encoders import (
+    TemporalEncoderLSTM,
     TemporalEncoderMamba,
     TemporalEncoderRNN,
     TemporalEncoderTransformer,
 )
 from .time import TimeDeltaProjection
-from .tr_mamba import TRMamba
+from .est import EST
 
 __all__ = [
     "StructEncoder",
+    "TemporalEncoderLSTM",
     "TemporalEncoderMamba",
     "TemporalEncoderRNN",
     "TemporalEncoderTransformer",
     "TimeDeltaProjection",
-    "TRMamba",
+    "EST",
 ]

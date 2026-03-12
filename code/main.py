@@ -29,10 +29,11 @@ def print_setting(args):
     print(f"history_len: {args.history_len}")
     print(f"use_struct_encoder: {args.use_struct_encoder}")
     print(f"struct_type: {args.struct_type}")
-    print("use_state_writeback: True (always on)")
     print(f"state_alpha: {args.state_alpha}")
     print(f"state_fuse: {args.state_fuse}")
-    print("model: tr_mamba")
+    print(f"gate_threshold: {args.gate_threshold}")
+    print(f"gate_scale: {args.gate_scale}")
+    print("model: EST")
     print(f"l2: {args.l2}")
     print(f"lr: {args.lr}")
     print(f"lr_warmup_epochs: {args.lr_warmup_epochs}")
@@ -45,7 +46,7 @@ def print_setting(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Temporal Knowledge Graph Tail Forecasting (TR-Mamba)")
+    parser = argparse.ArgumentParser(description="Temporal Knowledge Graph Tail Forecasting (EST)")
     parser.set_defaults(
         cuda=True,
         use_context=True,
@@ -65,13 +66,13 @@ def main():
     parser.add_argument("--batch_size", type=int, default=128, help="Batch size")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument("--dim", type=int, default=64, help="Hidden dimension for entity/relation embeddings")
-    parser.add_argument("--time_emb_dim", type=int, default=128, help="Embedding dimension for temporal encoding")
+    parser.add_argument("--time_emb_dim", type=int, default=32, help="Embedding dimension for temporal encoding")
     parser.add_argument("--history_len", type=int, default=32, help="Number of past events considered for context")
     parser.add_argument(
             "--temporal_encoder",
             type=str,
             default="transformer",
-            choices=["mamba", "rnn", "transformer"], 
+            choices=["mamba", "lstm", "rnn", "transformer"], 
             help="Backbone for temporal aggregation (for ablations).",
         )
     parser.add_argument(
@@ -96,7 +97,7 @@ def main():
     parser.add_argument(
         "--state_alpha",
         type=float,
-        default=0.5,
+        default=0.2,
         help="EMA coefficient for updating entity state buffer during writeback",
     )
     parser.add_argument(
@@ -105,6 +106,18 @@ def main():
         default="gate",
         choices=["add", "gate"],
         help="How to fuse embedding and state when feeding structural encoder",
+    )
+    parser.add_argument(
+        "--gate_threshold",
+        type=float,
+        default=0.7,
+        help="Threshold on state-change magnitude for opening the slow-state writeback gate",
+    )
+    parser.add_argument(
+        "--gate_scale",
+        type=float,
+        default=8.0,
+        help="Scale factor controlling how sharply the slow-state writeback gate opens",
     )
     parser.add_argument("--l2", type=float, default=1e-4, help="L2 regularisation weight")
     parser.add_argument("--lr", type=float, default=5e-3, help="Learning rate")

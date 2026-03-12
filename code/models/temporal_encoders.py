@@ -150,6 +150,60 @@ class TemporalEncoderRNN(nn.Module):
         return out
 
 
+class TemporalEncoderLSTM(nn.Module):
+    def __init__(self, input_dim: int, hidden_dim: int):
+        super().__init__()
+        self.hidden_dim = hidden_dim
+        self.in_proj = nn.Linear(input_dim, hidden_dim)
+        self.gate_proj = nn.Linear(input_dim, hidden_dim)
+        self.lstm_cell = nn.LSTMCell(hidden_dim, hidden_dim)
+        self.out_norm = nn.LayerNorm(hidden_dim)
+
+        nn.init.xavier_uniform_(self.in_proj.weight)
+        nn.init.zeros_(self.in_proj.bias)
+        nn.init.xavier_uniform_(self.gate_proj.weight)
+        nn.init.zeros_(self.gate_proj.bias)
+
+    def forward(
+        self,
+        inputs: torch.Tensor,
+        mask: torch.Tensor,
+        cond_bias_in: Optional[torch.Tensor] = None,
+        cond_bias_gate: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        orig_shape = inputs.shape[:-2]
+        seq_len = inputs.shape[-2]
+        x = inputs.reshape(-1, seq_len, inputs.size(-1))
+        m = mask.reshape(-1, seq_len)
+
+        x_lin = self.in_proj(x)
+        g_lin = self.gate_proj(x)
+        if cond_bias_in is not None:
+            x_lin = x_lin + cond_bias_in.reshape(-1, 1, self.hidden_dim)
+        if cond_bias_gate is not None:
+            g_lin = g_lin + cond_bias_gate.reshape(-1, 1, self.hidden_dim)
+
+        gate = torch.sigmoid(g_lin)
+        x_lin = torch.tanh(x_lin) * gate
+
+        h_state = torch.zeros(x_lin.size(0), self.hidden_dim, device=x_lin.device, dtype=x_lin.dtype)
+        c_state = torch.zeros_like(h_state)
+        outputs = []
+
+        for t in range(seq_len):
+            xt = x_lin[:, t, :]
+            mt = m[:, t].unsqueeze(-1)
+            new_h, new_c = self.lstm_cell(xt, (h_state, c_state))
+            h_state = torch.where(mt > 0.5, new_h, h_state)
+            c_state = torch.where(mt > 0.5, new_c, c_state)
+            outputs.append(h_state.unsqueeze(1))
+
+        y_seq = torch.cat(outputs, dim=1)
+        y_seq = self.out_norm(y_seq)
+        out = y_seq.reshape(*orig_shape, seq_len, self.hidden_dim)
+        return out
+
+
 class TemporalEncoderTransformer(nn.Module):
     def __init__(
         self,
