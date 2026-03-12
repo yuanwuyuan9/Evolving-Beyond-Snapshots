@@ -1,35 +1,45 @@
-# Evolving Beyond Snapshots: Harmonizing Structure and Sequence via Entity State Tuning for Temporal Knowledge Graph Forecasting
+<div align="center">
 
-This repository contains the official implementation of *Evolving Beyond Snapshots: Harmonizing Structure and Sequence via Entity State Tuning for Temporal Knowledge Graph Forecasting*.
+# Evolving Beyond Snapshots
 
-Paper: https://arxiv.org/abs/2602.12389
+### Harmonizing Structure and Sequence via Entity State Tuning for Temporal Knowledge Graph Forecasting
+
+[![Paper](https://img.shields.io/badge/Paper-arXiv%3A2602.12389-b31b1b)](https://arxiv.org/abs/2602.12389)
+![Task](https://img.shields.io/badge/Task-TKG%20Forecasting-1f6feb)
+![Backbone](https://img.shields.io/badge/Backbones-Transformer%20%7C%20Mamba%20%7C%20LSTM%20%7C%20RNN-0a7f5a)
+
+Official implementation of the paper *Evolving Beyond Snapshots: Harmonizing Structure and Sequence via Entity State Tuning for Temporal Knowledge Graph Forecasting*.
+
+</div>
 
 ## Overview
 
-EST is a temporal knowledge graph forecasting framework for tail prediction on queries of the form `(s, r, ?, t)`. The model combines structural context, temporal sequence modeling, and persistent entity-state updates within a unified training pipeline.
+EST is a temporal knowledge graph forecasting framework for tail prediction on queries of the form `(s, r, ?, t)`. It unifies structural context modeling, temporal sequence encoding, and persistent entity-state updates in a single training pipeline.
 
-Key features:
+Highlights:
 
-- Persistent entity-state memory instead of snapshot-wise reconstruction.
+- Persistent entity-state memory beyond snapshot-wise reconstruction.
 - Pluggable temporal backbones: `transformer`, `mamba`, `lstm`, `rnn`.
 - Optional structural encoder for historical neighbor modeling.
-- Time-aware negative filtering during training.
+- Past-only negative filtering during training.
 
 ## Framework
 
-![EST Framework](./framework.png)
+<p align="center">
+  <img src="./framework.png" alt="EST Framework" width="88%">
+</p>
 
-The framework contrasts stateless temporal reasoning with EST's stateful design, where entity states are maintained and updated over time to couple structural evidence with temporal dynamics.
+<p align="center"><em>EST maintains and updates entity states over time to couple structural evidence with temporal dynamics.</em></p>
 
-## Installation
+## Quick Start
+
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Training
-
-Run from the repository root:
+Run training from the repository root:
 
 ```bash
 python code/main.py \
@@ -71,13 +81,13 @@ python code/main.py --data_dir ./data --dataset ICEWS14 --no_time_aware_negative
 ```text
 .
 ├── code/
-│   ├── main.py                  # training entry point
+│   ├── main.py                  # training entry point and CLI configuration
 │   ├── data_loader.py           # dataset loading and temporal neighbor retrieval
 │   ├── train.py                 # training and evaluation loop
 │   └── models/
-│       ├── est.py               # EST model
+│       ├── est.py               # EST model definition
 │       ├── temporal_encoders.py # Transformer / Mamba / LSTM / RNN backbones
-│       ├── struct_encoder.py    # structural encoders
+│       ├── struct_encoder.py    # structural encoder variants
 │       └── time.py              # time encoding utilities
 ├── data/
 │   ├── ICEWS14/
